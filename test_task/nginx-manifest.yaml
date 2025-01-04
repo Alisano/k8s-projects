@@ -7,17 +7,17 @@
 # - хотим максимально отказоустойчивый deployment
 # - хотим минимального потребления ресурсов от этого deployment’а
 
-# Для удобства, вынесем наш проект в отдельный namespace с именем test
+# Для удобства развернем окружение в отдельном неймспейсе
 apiVersion: v1
 kind: Namespace
 metadata:
   name: test
 ---
-# Создаем deployment
+# Как пример, развернем веб-сервер nginx
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: nginx-deployment # Для примера будем деплоить под с nginx контейнером, на его месте может быть любой другой
+  name: nginx-deployment
   namespace: test
   labels:
     app: nginx
@@ -31,62 +31,58 @@ spec:
       labels:
         app: nginx
     spec:
-      # Через affinity разместим поды отдельно друг от друга на различне ноды
-      # Кроме этого, уставновим разрешение на размещение наших подов на указанные ноды
       affinity:
-        podAntiAffinity: # Размещаем поды на разных нодах
-          requiredDuringSchedulingIgnoredDuringExecution: # Делаем строгие требования по распределению подов на нодах
-          # Такое требование обусловлено требованием отказоустойчивости
-          # Кроме этого у нас при максимальной нагрузке 4 пода будут размещены на отдельных 4 нодах
-            - labelSelector:
+        podAntiAffinity: # Размещаем каждый под на отдельную зону и нод
+          requiredDuringSchedulingIgnoredDuringExecution:
+          # Ставим строгое требование по распределению подов для отказоустойчивости 
+          # При максимальной нагрузке получаем 4 пода, размещенных на различных 4 нодах
+          # В случае отказа работы какой-либо из нод, можно использовать условие preferredDuringScheduling чтобы разместить несколько под на одну ноду
+          - labelSelector:
+              matchLabels:
+                app: nginx
+            topologyKey: topology.kubernetes.io/hostname
+
+          preferredDuringSchedulingIgnoredDuringExecution:
+          # Ставим предпочтительное требование по размещению подов,
+          # поскольку в пике нагрузки у нас 4 пода, а всего 3 зоны
+          - weight: 100
+            podAffinityTerm:
+              labelSelector:
                 matchLabels:
                   app: nginx
-              topologyKey: topology.kubernetes.io/hostname 
-        # Ниже представлен закоментированный отрывок манифеста, описывающий задание зон для размещения подов
-        # Поскольку данный отрывок манефеста не тестировался, он был закоментирован
-        # При необходимости, его можно раскоментировать, а значения зон задать в строчке values
-        # nodeAffinity:
-        #   requiredDuringSchedulingIgnoredDuringExecution:
-        #     nodeSelectorTerms:
-        #       - matchExpressions:
-        #         - key: topology.kubernetes.io/zone
-        #         operator: In
-        #         values:
-        #           - zone-1 # Тут (и в двух нижних строчках) меняем название зоны на используемую зону
-        #           - zone-2
-        #           - zone-3
-      # Добавляем контейнеры
+              topologyKey: topology.kubernetes.io/zone
       containers:
       - name: nginx
         image: nginx:latest
         ports:
-        - containerPort: 80 # Чтобы не усложнять манифест (напирмер использованием ConfigMap), исплоьзуем порт по умолчанию
-        # Задаем ограничения по ресурсам контейнера
+        - containerPort: 80
         resources:
-          requests: # Здесь описываем ресурсы используемые контейром большую часть времени
-            memory: "128Mi" # Задаем 128 мб ОЗУ
-            cpu: "100m" # Задаем потребление в 10 процентов CPU
-          limits: # Здесь описываем ресурсы используемые контейром при максимальной нагрузке
-            memory: "128Mi" # Можно дать больше памяти 
-            cpu: "1000m" # Учитываем случай всплесков CPU
+          requests: # Задаем потребление ОЗУ и ЦПУ по условию задачи
+            memory: "128Mi"
+            cpu: "100m"
+          limits:
+            memory: "128Mi"
+            cpu: "1000m" # Учитываем случай всплесков CPU при кратковременной нагрузке
         # Проводим проверку работоспособности контейнера
         livenessProbe:
           httpGet:
-            path: / # Стучимся на ngnix
+            path: /
             port: 80
           initialDelaySeconds: 5 # Запускаем проверку работы контейнера по истичении 5 секунд после запуска контейнера
           periodSeconds: 5 # Проверяем работу контейнера через каждые 5 сек
-          failureThreshold: 3 # Если контейнер падает 3 раза, то перезагружаем его
+          failureThreshold: 3 # Если проба падает 3 раза, то перезагружаем его
         # Проводим проверку что контейнер готов к принятию трафика
         readinessProbe:
           httpGet:
-            path: /index.html # Пробуем открыть страничку nginx'а
+            path: /index.html
             port: 80
           initialDelaySeconds: 5
           periodSeconds: 5
-          failureThreshold: 3 # Если контейнер падает 3 раза, то отключаем его от сервиса
+          failureThreshold: 3
 ---
-# Задаем горизонтальное масштабирование
+# Задачу масштабированиям можно решать различными методами: 
+# 1. оценивая метрики нагрузки ЦПУ, 2. числу запросов к приложению, 3. по расписанию
+# Ниже будет рассмотрен первый метод
 apiVersion: autoscaling/v2
 kind: HorizontalPodAutoscaler
 metadata:
@@ -99,30 +95,24 @@ spec:
     name: nginx-deployment
   minReplicas: 2 # Устанавливаем как раньше 2 пода для отказоустойчивости
   maxReplicas: 4 # И задаем 4 пода по условию задачи
-  # Задачу масшатбирования можно решать как минимум 4 методами. 
-  # Первый и самый простой метод (представленный здесь) взять условие масштабирования 
-  # по нагрузке ЦПУ в чуть-более 10 процентов (чтобы учесть всплески нагрузки при начале запросов приложению) 
-  # если же нагрузка будет стабильно увеличиваться (например, днем), то система будет масшатбироваться до 4 подов
-  # Второй подоход чуть более сложный, он основан на использоании механизма behavior. 
-  # В нем мы можем задать временное окно (stabilizationWindowSeconds), чтобы учесть всплески нагрузки при начале запросов приложения
-  # А также можем определить скорость масштабирования наших подов (в случаях scaleDown и scaleUp).
-  # Третий метод заключается в испольлзовании метрики запросов (requests-per-second).
-  # Четвертый подход - использовать CronJob и задавать ночью использовать меньше подов, а днем больше.
   metrics:
   - type: Resource
     resource:
       name: cpu
       target:
         type: Utilization
-        averageUtilization: 15 # Задаем среднее потребление пода чуть большее 10 процентов CPU, чтобы учесть случай всплесков CPU
+        averageUtilization: 10 # Средняя нарузка ЦПУ пода по условию задачи
   - type: Resource
     resource:
       name: memory
       target:
         type: AverageValue
-        averageValue: 128Mi # Задаем среднее потребление памяти в 128 мб
+        averageValue: 128Mi # Среднее потребление памяти пода по условию задачи
+  behavior:
+    scaleUp:
+      stabilizationWindowSeconds: 60 # Ждем минуту перед масштабированием, чтобы учесть всплески нагрузки
 ---
-# Создаем сервис - LoadBalancer, для распредления трафика между нодами (зонами)
+# Создаем LoadBalancer, для распредления трафика между зонами
 apiVersion: v1
 kind: Service
 metadata:
@@ -133,7 +123,7 @@ spec:
   selector:
     app: nginx
   ports:
-    - protocol: TCP # Как пример, используем TCP протокол для подключению к nginx
+    - protocol: TCP
       port: 80 
       targetPort: 80
 ---
