@@ -132,8 +132,6 @@ kind: Ingress
 metadata:
   name: nginx-ingress
   namespace: test
-  labels:
-    app: nginx
   annotations:
     nginx.ingress.kubernetes.io/app-root: /nginx
 spec:
