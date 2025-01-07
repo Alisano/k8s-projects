@@ -31,7 +31,7 @@ spec:
         app: nginx
     spec:
       affinity:
-        podAntiAffinity: # Размещаем каждый под на отдельную зону и нод
+        podAntiAffinity: # Размещаем каждый под на отдельную зону и нод, отметим что вместо affinity-правил можно также воспользоваться topologySpreadConstraints
           requiredDuringSchedulingIgnoredDuringExecution:
           # Ставим строгое требование по распределению подов для отказоустойчивости 
           # При максимальной нагрузке получаем 4 пода, размещенных на различных 4 нодах
@@ -50,6 +50,22 @@ spec:
                 matchLabels:
                   app: nginx
               topologyKey: topology.kubernetes.io/zone
+
+      # # Альтернативное решение задачи размещения каждого пода на отдельную зону и нод
+      # topologySpreadConstraints:
+      # - maxSkew: 1
+      #   topologyKey: topology.kubernetes.io/zone
+      #   whenUnsatisfiable: ScheduleAnyway # Учитываем случай когда у нас 4 пода, но 3 зоны
+      #   labelSelector:
+      #     matchLabels:
+      #       app: nginx
+      # - maxSkew: 1
+      #   topologyKey: topology.kubernetes.io/hostname
+      #   whenUnsatisfiable: ScheduleAnyway # В случае если нода отказала, то под можно разместить вместе с другим подом
+      #   labelSelector:
+      #     matchLabels:
+      #       app: nginx
+
       containers:
       - name: nginx
         image: nginx:latest
