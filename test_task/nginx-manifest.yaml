@@ -52,7 +52,7 @@ spec:
                   app: nginx
               topologyKey: topology.kubernetes.io/zone
 
-      # # Альтернативное решение задачи размещения каждого пода на отдельную зону и нод
+      # # Альтернативное решение задачи размещения каждого пода на отдельную зону и нод (данное решение не тестировалось)
       # topologySpreadConstraints:
       # - maxSkew: 1
       #   topologyKey: topology.kubernetes.io/zone
