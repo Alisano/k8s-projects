@@ -116,13 +116,13 @@ spec:
       name: cpu
       target:
         type: Utilization
-        averageUtilization: 10 # Средняя нарузка ЦПУ пода по условию задачи
+        averageUtilization: 10 # Средняя нарузка ЦПУ пода по условию задачи (если будет происходить преждевременное масштабирование, можно увеличить значение потребления ЦПУ)
   - type: Resource
     resource:
       name: memory
       target:
         type: AverageValue
-        averageValue: 128Mi # Среднее потребление памяти пода по условию задачи
+        averageValue: 128Mi # Среднее потребление памяти пода по условию задачи (как и в случае с ЦПУ, также можно немного увеличить значение потребления ОЗУ)
   behavior:
     scaleUp:
       stabilizationWindowSeconds: 60 # Ждем минуту перед масштабированием, чтобы учесть всплески нагрузки
